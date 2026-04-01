@@ -129,20 +129,49 @@ public sealed class SolutionParserCommand : Command<SolutionParserCommand.Settin
         Console.WriteLine(jsonStr);
     }
 
+    static string? GetFirstFramework(MSProject proj, out bool hasMultipleFrameworks) 
+    {
+        hasMultipleFrameworks = false;
+        var targetfx = proj.GetPropertyValue("TargetFramework");
+        if (!string.IsNullOrEmpty(targetfx))
+        {
+            return targetfx;
+        }
+        var targetFrameworks = proj.GetPropertyValue("TargetFrameworks"); 
+        if (string.IsNullOrEmpty(targetFrameworks))
+        {
+           return null; 
+        }
+        hasMultipleFrameworks = true;
+        return targetFrameworks.Split(";").FirstOrDefault();
+    }
+
     Project? GetProjectDetails(string name, string projPath)
     {
         try
         {
+            var loadSettings = ProjectLoadSettings.IgnoreMissingImports | ProjectLoadSettings.FailOnUnresolvedSdk;
             var proj = MSProject.FromFile(projPath, new ProjectOptions
             {
-                LoadSettings = ProjectLoadSettings.IgnoreMissingImports | ProjectLoadSettings.FailOnUnresolvedSdk
+                LoadSettings = loadSettings
             });
+
+            var targetfx = GetFirstFramework(proj, out var hasMultipleFrameworks);
+
+            if (hasMultipleFrameworks && !string.IsNullOrEmpty(targetfx))
+            {
+                proj = MSProject.FromFile(projPath, new ProjectOptions {
+                    LoadSettings = loadSettings,
+                    GlobalProperties = new Dictionary<string, string> {
+                        {"TargetFramework", targetfx}
+                    }
+                });
+            }        
 
             var assembly = proj.GetPropertyValue("TargetPath");
             var outputType = proj.GetPropertyValue("outputType");
             var desingerHostPath = proj.GetPropertyValue("AvaloniaPreviewerNetCoreToolPath");
 
-            var targetfx = proj.GetPropertyValue("TargetFramework");
             var projectDepsFilePath = proj.GetPropertyValue("ProjectDepsFilePath");
             var projectRuntimeConfigFilePath = proj.GetPropertyValue("ProjectRuntimeConfigFilePath");
 
@@ -160,7 +189,7 @@ public sealed class SolutionParserCommand : Command<SolutionParserCommand.Settin
                 OutputType = outputType,
                 DesignerHostPath = desingerHostPath,
 
-                TargetFramework = targetfx,
+                TargetFramework = targetfx ?? "",
                 DepsFilePath = projectDepsFilePath,
                 RuntimeConfigFilePath = projectRuntimeConfigFilePath,
 
